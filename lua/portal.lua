@@ -39,12 +39,14 @@ function Portal.tunnel(queries, overrides)
 
     Portal.open(windows)
 
-    local selected = Search.select(windows, settings.escape)
+    local selected, keys = Search.select(windows, settings.escape, settings.passthru)
     if selected ~= nil then
         selected:select()
     end
-
     Portal.close(windows)
+    if keys then
+        vim.fn.feedkeys(keys, "L")
+    end
 end
 
 ---@param queries Portal.Query[]

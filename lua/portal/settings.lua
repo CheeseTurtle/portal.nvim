@@ -33,6 +33,11 @@ local DEFAULT_SETTINGS = {
         ["<esc>"] = true,
     },
 
+    ---Keys that Portal will pass to Vim so that you can configure your own mappings for them
+    ---so that they will still be in effect when there are portal windows open, or `false` to disable.
+    ---@type false|table<string, boolean>
+    passthru = false,
+
     ---The raw window options used for the portal window
     window_options = {
         relative = "cursor",
@@ -72,16 +77,41 @@ local function replace_termcodes(keys)
     return resolved_keys
 end
 
+--- @param keys table
+local function replace_termcodes_val(keys)
+    local resolved_keys = {}
+
+    for key_or_index, key_or_flag in pairs(keys) do
+        -- Table style: { "a", "b", "c" }. In this case, key_or_flag is the key
+        if type(key_or_index) == "number" then
+            resolved_keys[termcode_for(key_or_flag)] = true
+            goto continue
+        end
+
+        -- Table style: { ["<esc>"] = true }. In this case, key_or_index is the key
+        if type(key_or_index) == "string" then
+            resolved_keys[termcode_for(key_or_index)] = key_or_flag
+            goto continue
+        end
+
+        ::continue::
+    end
+
+    return resolved_keys
+end
+
 --- @type Portal.Settings
 local _settings = DEFAULT_SETTINGS
 _settings.escape = replace_termcodes(_settings.escape)
 _settings.labels = replace_termcodes(_settings.labels)
+_settings.passthru = _settings.passthru and replace_termcodes_val(_settings.passthru) or {}
 
 ---@param overrides? Portal.Settings
 function Settings.update(overrides)
     _settings = vim.tbl_deep_extend("force", DEFAULT_SETTINGS, overrides or {})
     _settings.escape = replace_termcodes(_settings.escape)
     _settings.labels = replace_termcodes(_settings.labels)
+    _settings.passthru = _settings.passthru and replace_termcodes_val(_settings.passthru) or {}
 end
 
 --- @return Portal.Settings

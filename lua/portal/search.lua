@@ -51,15 +51,23 @@ end
 ---@param results Portal.Content[]
 ---@param labels string[]
 ---@param window_options Portal.WindowOptions
+---@param source? string
 ---@return Portal.Window[]
-function Search.portals(results, labels, window_options)
+function Search.portals(results, labels, window_options, source)
+    if source then
+        source = " (" .. source .. ")"
+    else
+        source = ""
+    end
     if vim.tbl_isempty(results) then
-        vim.notify("Portal: empty search results")
+        vim.notify("Portal " .. source .. ": empty search results")
         return {}
     end
-    if vim.tbl_count(results) > vim.tbl_count(labels) then
-        log.warn("Search.open: found more results than available labels.")
+    local numres, numlab = vim.tbl_count(results), vim.tbl_count(labels)
+    if numres > numlab then
+        log.warn("Search.open" .. source .. ": found more results than available labels.")
     end
+    vim.notify("Portal" .. source .. ": Showing " .. math.min(numres, numlab) .. "/" .. numres .. " results")
 
     local function window_title(result)
         local title = vim.fs.basename(vim.api.nvim_buf_get_name(result.buffer))
@@ -125,8 +133,10 @@ end
 
 ---@param windows Portal.Window[]
 ---@param escape_keys string[]
----@return Portal.Window | nil
-function Search.select(windows, escape_keys)
+---@param passthru_keys? table<string, boolean>
+---@return Portal.Window|nil
+---@return string|nil
+function Search.select(windows, escape_keys, passthru_keys)
     if vim.tbl_isempty(windows) then
         return
     end
@@ -136,9 +146,20 @@ function Search.select(windows, escape_keys)
         if not ok then
             break
         end
-        for _, key in pairs(escape_keys) do
+        for _, key in ipairs(escape_keys) do
             if char == key then
-                goto done
+                return
+            end
+        end
+        if passthru_keys then
+            for key, shouldClose in pairs(passthru_keys) do
+                if char == key then
+                    if shouldClose then
+                        return nil, key
+                    else
+                        vim.fn.feedkeys(key, "L")
+                    end
+                end
             end
         end
         for _, window in ipairs(windows) do
@@ -147,7 +168,6 @@ function Search.select(windows, escape_keys)
             end
         end
     end
-    ::done::
 end
 
 return Search
