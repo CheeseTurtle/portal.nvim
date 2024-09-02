@@ -87,7 +87,7 @@ function Portal.portals(results, overrides)
     local Settings = require("portal.settings")
 
     local settings = vim.tbl_deep_extend("force", Settings.as_table(), overrides or {})
-    local windows = Search.portals(results, settings.labels, settings.window_options)
+    local windows = Search.portals(results, settings.labels, settings.window_options, nil, settings.window_extra_opts)
 
     return windows
 end

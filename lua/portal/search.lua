@@ -18,117 +18,106 @@ local Search = {}
 
 ---@enum Portal.Direction
 Search.direction = {
-    forward = "forward",
-    backward = "backward",
+  forward = "forward",
+  backward = "backward",
 }
 
 ---@generic T
 ---@param query Portal.Query
 ---@return T[]
 function Search.search(query)
-    local slots = query.slots
-    if not slots then
-        return query.source:collect()
+  local slots = query.slots
+  if not slots then return query.source:collect() end
+
+  if type(slots) == "function" then slots = { slots } end
+
+  local results = query.source:reduce(function(acc, value)
+    for i, predicate in ipairs(slots) do
+      if not acc[i] and predicate(value) then
+        acc[i] = value
+        break
+      end
     end
+    return acc
+  end, {})
 
-    if type(slots) == "function" then
-        slots = { slots }
-    end
-
-    local results = query.source:reduce(function(acc, value)
-        for i, predicate in ipairs(slots) do
-            if not acc[i] and predicate(value) then
-                acc[i] = value
-                break
-            end
-        end
-        return acc
-    end, {})
-
-    return results
+  return results
 end
 
 ---@param results Portal.Content[]
 ---@param labels string[]
 ---@param window_options Portal.WindowOptions
 ---@param source? string
+---@param window_extra_opts? Portal.WindowExtraOptions
 ---@return Portal.Window[]
-function Search.portals(results, labels, window_options, source)
-    if source then
-        source = " (" .. source .. ")"
-    else
-        source = ""
-    end
-    if vim.tbl_isempty(results) then
-        vim.notify("Portal " .. source .. ": empty search results")
-        return {}
-    end
-    local numres, numlab = vim.tbl_count(results), vim.tbl_count(labels)
-    if numres > numlab then
-        log.warn("Search.open" .. source .. ": found more results than available labels.")
-    end
-    vim.notify("Portal" .. source .. ": Showing " .. math.min(numres, numlab) .. "/" .. numres .. " results")
+function Search.portals(results, labels, window_options, source, window_extra_opts)
+  if source then
+    source = " (" .. source .. ")"
+  else
+    source = ""
+  end
+  if vim.tbl_isempty(results) then
+    vim.notify("Portal " .. source .. ": empty search results")
+    return {}
+  end
+  local numres, numlab = vim.tbl_count(results), vim.tbl_count(labels)
+  if numres > numlab then log.warn("Search.open" .. source .. ": found more results than available labels.") end
+  vim.notify("Portal" .. source .. ": Showing " .. math.min(numres, numlab) .. "/" .. numres .. " results")
 
-    local function window_title(result)
-        local title = vim.fs.basename(vim.api.nvim_buf_get_name(result.buffer))
-        if title == "" then
-            title = "Result"
-        end
-        return ("[%s] %s"):format(result.type, title)
-    end
+  local function window_title(result)
+    local title = vim.fs.basename(vim.api.nvim_buf_get_name(result.buffer))
+    if title == "" then title = "Result" end
+    return ("[%s] %s"):format(result.type, title)
+  end
 
-    local function compute_max_index()
-        return math.min(math.max(unpack(vim.tbl_keys(results))), #labels)
-    end
+  local function compute_max_index() return math.min(math.max(unpack(vim.tbl_keys(results))), #labels) end
 
-    local function compute_initial_offset()
-        local row_offset = 0
+  local function compute_initial_offset()
+    local row_offset = 0
 
-        local height_step = window_options.height + 2
-        local total_height = vim.tbl_count(results) * height_step
+    local height_step = window_options.height + 2
+    local total_height = vim.tbl_count(results) * height_step
 
-        local win_height = vim.api.nvim_win_get_height(0)
-        local win_current_line = vim.fn.line(".")
-        local win_top_line = vim.fn.line("w0")
-        local win_bottom_line = win_top_line + win_height
+    local win_height = vim.api.nvim_win_get_height(0)
+    local win_current_line = vim.fn.line(".")
+    local win_top_line = vim.fn.line("w0")
+    local win_bottom_line = win_top_line + win_height
 
-        local line_difference = win_bottom_line - win_current_line
+    local line_difference = win_bottom_line - win_current_line
 
-        if line_difference < total_height then
-            row_offset = line_difference - total_height
-        end
+    if line_difference < total_height then row_offset = line_difference - total_height end
 
-        return row_offset
-    end
+    return row_offset
+  end
 
-    local windows = {}
+  local windows = {}
 
-    local cur_row = 0
-    local max_index = compute_max_index()
-    local row_offset = compute_initial_offset()
+  local cur_row = 0
+  local max_index = compute_max_index()
+  local row_offset = compute_initial_offset()
 
-    for i = 1, max_index do
+  for i = 1, max_index do
         -- stylua: ignore
         if not results[i] then goto continue end
 
-        local result = results[i]
+    local result = results[i]
 
-        cur_row = cur_row + 1
-        window_options = vim.deepcopy(window_options)
-        window_options.row = row_offset + (cur_row - 1) * (window_options.height + 2)
+    cur_row = cur_row + 1
+    window_options = vim.deepcopy(window_options)
+    window_options.row = row_offset + (cur_row - 1) * (window_options.height + 2)
 
-        if vim.fn.has("nvim-0.9") == 1 then
-            window_options.title = window_title(result)
-        end
+    if vim.fn.has("nvim-0.9") == 1 then window_options.title = window_title(result) end
 
-        local window = Window:new(labels[i], result, window_options)
+    window_extra_opts = window_extra_opts and vim.deepcopy(window_extra_opts) or nil
 
-        table.insert(windows, window)
+    local window = Window:new(labels[i], result, window_options, window_extra_opts)
 
-        ::continue::
-    end
+    table.insert(windows, window)
 
-    return windows
+    ::continue::
+  end
+
+  return windows
 end
 
 ---@param windows Portal.Window[]
@@ -137,37 +126,55 @@ end
 ---@return Portal.Window|nil
 ---@return string|nil
 function Search.select(windows, escape_keys, passthru_keys)
-    if vim.tbl_isempty(windows) then
-        return
-    end
+  if vim.tbl_isempty(windows) then return end
 
-    while true do
-        local ok, char = pcall(vim.fn.getcharstr)
-        if not ok then
-            break
-        end
-        for _, key in ipairs(escape_keys) do
-            if char == key then
-                return
-            end
-        end
-        if passthru_keys then
-            for key, shouldClose in pairs(passthru_keys) do
-                if char == key then
-                    if shouldClose then
-                        return nil, key
-                    else
-                        vim.fn.feedkeys(key, "L")
-                    end
-                end
-            end
-        end
-        for _, window in ipairs(windows) do
-            if window:has_label(char) then
-                return window
-            end
-        end
+  while true do
+    local ok, char = pcall(vim.fn.getcharstr)
+    if not ok then break end
+    for _, key in ipairs(escape_keys) do
+      if char == key then return end
     end
+    if passthru_keys then
+      for key, shouldClose in pairs(passthru_keys) do
+        if char == key then
+          local t = type(shouldClose)
+          if t == "boolean" then
+            if shouldClose then
+              return nil, key
+            else
+              vim.fn.feedkeys(key, "L")
+            end
+          elseif t == "number" then
+            if 1 <= shouldClose and #windows >= shouldClose then
+              return windows[shouldClose]
+            else
+              break
+            end
+          elseif t == "first" then
+            if #windows > 0 then
+              return windows[1]
+            else
+              break
+            end
+          elseif t == "last" then
+            if #windows > 0 then
+              return windows[#windows]
+            else
+              break
+            end
+          else
+            vim.api.nvim_echo({
+              { "Invalid key action specification for key '" .. key .. "': ", "ErrorMsg" },
+              { vim.fn.string(shouldClose), "ErrorMsg" },
+            }, true, {})
+          end
+        end
+      end
+    end
+    for _, window in ipairs(windows) do
+      if window:has_label(char) then return window end
+    end
+  end
 end
 
 return Search
